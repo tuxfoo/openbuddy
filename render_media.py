@@ -4,9 +4,10 @@
 
 from PyQt5.QtGui import QPixmap, QImage, QPainter, QCursor, qAlpha, QMouseEvent
 from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
-from PyQt5.QtCore import QEvent, QObject, Qt, QPoint, QUrl, QRect, QPropertyAnimation, QTimer
+from PyQt5.QtCore import QEvent, QObject, Qt, QPoint, QUrl, QRect, QPropertyAnimation, QVariantAnimation, QTimer
 from PyQt5 import QtMultimedia, QtMultimediaWidgets
 from PyQt5.QtMultimedia import QAbstractVideoSurface, QVideoSurfaceFormat, QAbstractVideoBuffer, QVideoFrame
+import random
 
 class VideoSurface(QAbstractVideoSurface):
     def __init__(self, label):
@@ -22,8 +23,11 @@ class VideoSurface(QAbstractVideoSurface):
         if frame.isValid():
             image = frame.image().convertToFormat(QImage.Format_RGBA8888)
             self.label.setPixmap(QPixmap.fromImage(image))
+            # Maintain aspect ratio of the image without stretching it.
+            self.label.setPixmap(self.label.pixmap().scaled(self.label.width(), self.label.height(), Qt.KeepAspectRatio))
             return True
-        return False
+        else:
+            return False
 
 # A class to handle animating a window.
 class AnimateWindow():
@@ -47,11 +51,10 @@ class AnimateWindow():
 class AssetWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        window_width = 768
-        window_height = 512
+        self.window_width = 768
+        self.window_height = 512
         # Might remove Qt.X11BypassWindowManagerHint later, but it is needed for now to make the window appear on top of the taskbar.
-        # Qt.WindowTransparentForInput might be needed later to make the window transparent to mouse clicks, we can use smaller windows for the buttons.
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.X11BypassWindowManagerHint | Qt.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.X11BypassWindowManagerHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_Hover)
         self.setMouseTracking(True)
@@ -59,13 +62,16 @@ class AssetWindow(QMainWindow):
 
         self.label = QLabel(self)
         # Keep aspect ratio of the image and scale it to fit the label.
-        self.setGeometry(0, 0, window_width, window_height)
+        self.setGeometry(0, 0, self.window_width, self.window_height)
         # Scale the image to fit the label while maintaining the aspect ratio.
-        self.label.setGeometry(0, 0, window_width, window_height)
+        self.label.setGeometry(0, 0, self.window_width, self.window_height)
         self.label.setScaledContents(True)
 
         self.draggable = False
         self.offset = QPoint()
+
+        # This is used as a optional starting offset for the window.
+        self.starting_Offset = QPoint()
 
         self.playlist = QtMultimedia.QMediaPlaylist()
         self.player = QtMultimedia.QMediaPlayer()
@@ -73,6 +79,44 @@ class AssetWindow(QMainWindow):
         self.video_surface = VideoSurface(self.label)
         self.playlist.setPlaybackMode(QtMultimedia.QMediaPlaylist.Loop)
         self.player.setVideoOutput(self.video_surface)
+        self.animations = {}
+        self.current_animation = None
+
+    def init_animation(self, animation, loop=False):
+        current_animation = self.current_animation
+        # To prevent trying to play the same animation. (Eg: when dragging the window, function is called multiple times.)
+        if current_animation == animation:
+            return False
+        #print("Current Animation: " + str(current_animation) + " Type: " + str(self.animations[current_animation].media_type))
+        #print("New Animation: " + str(animation) + " Type: " + str(self.animations[animation].media_type))
+        # Temporary check to see if the animation is a video or not (Will be replaced with a better solution later).
+        if self.animations[current_animation].media_type == 'video':
+            if self.animations[animation].media_type == 'imageAnimation':        
+                self.playlist.clear()
+                self.animations[animation].play()
+            else:
+                self.playlist.clear()
+                self.animations[animation].create_playlist()
+                if loop:
+                    self.playlist.setPlaybackMode(QtMultimedia.QMediaPlaylist.Loop)
+                else:
+                    self.playlist.setPlaybackMode(QtMultimedia.QMediaPlaylist.CurrentItemOnce)
+                self.play_video()
+        else:
+            if self.animations[animation].media_type == 'imageAnimation':
+                self.animations[current_animation].stop()
+                self.animations[animation].play()
+            else:
+                print("stopping image animation")
+                self.animations[animation].create_playlist()
+                if loop:
+                    self.playlist.setPlaybackMode(QtMultimedia.QMediaPlaylist.Loop)
+                else:
+                    self.playlist.setPlaybackMode(QtMultimedia.QMediaPlaylist.CurrentItemOnce)
+                self.play_video()
+                self.animations[current_animation].stop()
+        self.current_animation = animation
+        return True
 
     def bottom_right_corner(self):
         # Sets the window to the bottom right corner of the primary monitor.
@@ -86,8 +130,9 @@ class AssetWindow(QMainWindow):
 
     def render_image(self, image_path):
         pixmap = QPixmap(image_path)
+        # Keep aspect ratio of the image and scale it to fit the label.
+        #self.label.setScaledContents(True)
         self.label.setPixmap(pixmap)
-        #self.set_native_size()
 
     def set_native_size(self):
         self.label.adjustSize()
@@ -96,6 +141,9 @@ class AssetWindow(QMainWindow):
     def event(self, event):
         if event.type() == QEvent.HoverMove:
             pos = event.pos()
+            # Check if width and height attributes exist.
+            if not hasattr(self.label.pixmap(), 'width') and not hasattr(self.label.pixmap(), 'height'):
+                return super().event(event)
             # Scale the position to the size of the image.
             pos.setX(int(pos.x() * self.label.pixmap().width() / self.label.width()))
             pos.setY(int(pos.y() * self.label.pixmap().height() / self.label.height()))
@@ -154,12 +202,15 @@ class AssetWindow(QMainWindow):
     def mouseMoveEvent(self, event):
         if self.draggable:
             self.move(event.globalPos() - self.offset)
+            event.accept()
+            # Play the drag animation.
+            self.init_animation('drag', True)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.offset = event.pos()
             if not self.draggable:
-                # Forward mouse click to whatever is behind the window, even other applications.
+                # Placeholder
                 pass
         if event.button() == Qt.RightButton:
             self.move_it = AnimateWindow()
@@ -175,10 +226,18 @@ class AssetWindow(QMainWindow):
         if event.key() == Qt.Key_Escape:
             self.close()
             exit()
-    
-    def keyReleaseEvent(self, event):
-        if event.key() == Qt.Key_S:
-            self.player.stop()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if self.draggable:
+                # Play the drop animation.
+                self.init_animation('drop', False)
+                #self.play_video()
+                # When the animation is done, clear the playlist and play the idle animation.
+                #self.current_animation = 'idle'
+                self.player.mediaStatusChanged.connect(self.media_status)
+                print("Mouse released")
+                #self.playlist.currentMediaChanged.connect(self.init_animation)
 
     def add_video_to_playlist(self, video_path):
         media = QtMultimedia.QMediaContent(QUrl.fromLocalFile(video_path))
@@ -197,4 +256,88 @@ class AssetWindow(QMainWindow):
     def play_video(self):
         self.player.play()
 
+    def media_status(self, status):
+        if status == QtMultimedia.QMediaPlayer.EndOfMedia:
+            self.init_animation('idle', True)
+            #self.animations[self.current_animation].create_playlist()
+            #self.play_video()
+    
+    def play_images(self, image_paths, speed=2000):
+        # Play a sequence of images as an animation.
+        self.image_animation = AnimateImages(self.label)
+        self.image_animation.speed = speed
+        self.image_animation.create_animation(image_paths)
+        self.image_animation.play()
 
+    def stop_images(self):
+        self.image_animation.stop()
+
+    def bored(self):
+        # Play a random animation from a list of animations.
+        if not self.draggable:
+            self.init_animation('bored', False)
+        # When the timer times out, stop the timer and restart it.
+        self.idle_threshold = random.randint(100000, 300000)
+        self.idle_timer.timeout.connect(self.idle_timer.start)
+    
+    def check_user_activity(self):
+        # Check user activity and play bored animation if no activity for a while
+        # Set the idle time threshold in milliseconds
+        # Randomize the time threshold to make the application seem more natural.
+        self.idle_threshold = random.randint(100000, 300000)
+        self.idle_timer = QTimer()
+        self.idle_timer.timeout.connect(self.bored)
+        self.idle_timer.start(self.idle_threshold)
+
+
+class StaticImage():
+    def __init__(self, label):
+        self.label = label
+        self.image = None
+
+    def render_image(self, image_path):
+        self.image = QPixmap(image_path)
+        self.label.setPixmap(self.image)
+
+    def set_native_size(self):
+        self.label.adjustSize()
+
+    def set_scaled_size(self):
+        self.label.setScaledContents(True)
+
+    def set_aspect_ratio(self, aspect_ratio=True):
+        self.label.setAspectRatioMode(aspect_ratio)
+
+class AnimateImages():
+    # A class to handle animations created from a sequence of images.
+    def __init__(self, label):
+        self.label = label
+        self.images = []
+        self.animation = None
+        self.speed = 2000
+        self.animation = QVariantAnimation()
+
+    def create_animation(self, image_paths):
+        for image_path in image_paths:
+            self.images.append(QPixmap(image_path))
+        # Create a animation from the sequence of images.
+        self.animation.setDuration(self.speed)
+        self.animation.setStartValue(0)
+        self.animation.setEndValue(len(self.images) - 1)
+        self.animation.valueChanged.connect(self.update_pixmap)
+        self.animation.setLoopCount(-1)
+
+    def add_animation_layer(self, image_paths):
+        # Add a layer overlayed on top of each frame of the animation.
+        pass
+
+    def update_pixmap(self, index):
+        pixmap = self.images[int(index)]
+        self.label.setPixmap(pixmap)
+
+    def play(self):
+        self.animation.start()
+
+    def stop(self):
+        self.animation.stop()
+        self.label.clear()

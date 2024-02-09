@@ -2,7 +2,9 @@
 
 ## Current State
 
-Currently, the application is in a very early state and does not do much. I am working on rendering desktop overlays. How this works is that a video with a alpha channel is played on the desktop. The video is rendered on top of all other windows. 
+Currently, the application is in a very early state and does not do much. I am working on rendering desktop overlays. How this works is that a video with a alpha channel is played on the desktop. The video is rendered on top of all other windows. It can be moved around the screen, there might be a delay detecting your cursor when you mouse over the Buddy.
+
+Included are some test graphics (Upscaled Bonzi Buddy), these will likely remeain in the project during the the early development stage. 
 
 ## Description
 
