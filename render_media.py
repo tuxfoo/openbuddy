@@ -71,7 +71,7 @@ class AssetWindow(QMainWindow):
         self.offset = QPoint()
 
         # This is used as a optional starting offset for the window.
-        self.starting_Offset = QPoint()
+        self.starting_Offset = QPoint(0, 0)
 
         self.playlist = QtMultimedia.QMediaPlaylist()
         self.player = QtMultimedia.QMediaPlayer()
@@ -81,6 +81,13 @@ class AssetWindow(QMainWindow):
         self.player.setVideoOutput(self.video_surface)
         self.animations = {}
         self.current_animation = None
+
+    def set_starting_offset(self, x, y):
+        self.starting_Offset = QPoint(x, y)
+        
+    def adjust_starting_offset(self, offset):
+        # Adjust the the position of the window by the offset.
+        self.move(self.x() + offset.x(), self.y() + offset.y())
 
     def init_animation(self, animation, loop=False):
         current_animation = self.current_animation
@@ -127,6 +134,7 @@ class AssetWindow(QMainWindow):
         x = screen_corner.x() - window_geometry.width()
         y = screen_corner.y() - window_geometry.height()
         self.setGeometry(x, y, window_geometry.width(), window_geometry.height())
+        self.adjust_starting_offset(self.starting_Offset)
 
     def render_image(self, image_path):
         pixmap = QPixmap(image_path)

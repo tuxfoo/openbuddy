@@ -12,7 +12,7 @@ if __name__ == "__main__":
     #idle = actions.VideoAnimationTask(window, [{'video': current_path + "/bonzi-test.webm", 'repeats': 15}, {'video': current_path + "/bonzi-juggle.webm", 'repeats': 1}])
     drag = actions.DragTask(window, [{'video': current_path + "/bonzi_swing.webm", 'repeats': 1}])
     drop = actions.DropTask(window, [{'video': current_path + "/bonzi_swing_land.webm", 'repeats': 1}])
-    
+    window.set_starting_offset(150, -5)
     # Set the window to the bottom right corner of the screen.
     window.bottom_right_corner()
 
